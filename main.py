@@ -1,4 +1,7 @@
 import io
+import os
+import tempfile
+from pdf2docx import Converter
 from PIL import Image
 from pypdf import PdfReader, PdfWriter
 import streamlit as st
@@ -15,14 +18,17 @@ st.caption(
 )
 
 # Navigasi Tab
-tab_merge, tab_split, tab_rotate, tab_protect, tab_img2pdf = st.tabs(
-    [
-        "🔗 Gabung PDF",
-        "✂️ Pisah / Ekstrak",
-        "🔄 Putar Halaman",
-        "🔒 Kunci / Buka Password",
-        "🖼️ Gambar ke PDF",
-    ]
+tab_merge, tab_split, tab_rotate, tab_protect, tab_img2pdf, tab_pdf2docx = (
+    st.tabs(
+        [
+            "🔗 Gabung PDF",
+            "✂️ Pisah / Ekstrak",
+            "🔄 Putar Halaman",
+            "🔒 Kunci / Buka Password",
+            "🖼️ Gambar ke PDF",
+            "📝 PDF ke Word",
+        ]
+    )
 )
 
 # ---------------------------------------------------------
@@ -98,7 +104,9 @@ with tab_split:
                                 selected_indices.add(num - 1)
 
                     if not selected_indices:
-                        st.error("Nomor halaman tidak valid atau di luar rentang.")
+                        st.error(
+                            "Nomor halaman tidak valid atau di luar rentang."
+                        )
                     else:
                         writer = PdfWriter()
                         for idx in sorted(list(selected_indices)):
@@ -119,7 +127,9 @@ with tab_split:
                             use_container_width=True,
                         )
                 except ValueError:
-                    st.error("Format input salah. Gunakan angka dan tanda minus.")
+                    st.error(
+                        "Format input salah. Gunakan angka dan tanda minus."
+                    )
 
 # ---------------------------------------------------------
 # TAB 3: PUTAR HALAMAN (ROTATE)
@@ -288,5 +298,42 @@ with tab_img2pdf:
                     data=out_buf.getvalue(),
                     file_name="koleksi_gambar.pdf",
                     mime="application/pdf",
+                    use_container_width=True,
+                )
+
+# ---------------------------------------------------------
+# TAB 6: PDF KE WORD (.DOCX)
+# ---------------------------------------------------------
+with tab_pdf2docx:
+    st.subheader("Konversi Dokumen PDF ke Format Word (.docx)")
+    docx_file = st.file_uploader(
+        "Pilih file PDF yang ingin dikonversi:",
+        type=["pdf"],
+        key="pdf2docx_uploader",
+    )
+
+    if docx_file:
+        if st.button("Konversi ke Word", type="primary", key="btn_pdf2docx"):
+            with st.spinner("Sedang mengonversi tata letak, teks, dan tabel..."):
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    input_path = os.path.join(temp_dir, "input.pdf")
+                    output_path = os.path.join(temp_dir, "output.docx")
+
+                    with open(input_path, "wb") as f:
+                        f.write(docx_file.getvalue())
+
+                    cv = Converter(input_path)
+                    cv.convert(output_path, start=0, end=None)
+                    cv.close()
+
+                    with open(output_path, "rb") as f:
+                        docx_bytes = f.read()
+
+                st.success("Konversi ke Word berhasil!")
+                st.download_button(
+                    label="📥 Unduh Dokumen Word (.docx)",
+                    data=docx_bytes,
+                    file_name="hasil_konversi.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     use_container_width=True,
                 )
