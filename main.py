@@ -11,7 +11,7 @@ import streamlit as st
 import fitz  # PyMuPDF
 
 st.set_page_config(
-    page_title="PDF Swiss Knife Pro",
+    page_title="PDFku by LYD Bali Group",
     page_icon="📑",
     layout="wide",
 )
