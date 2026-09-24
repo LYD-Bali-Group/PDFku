@@ -12,9 +12,9 @@ st.set_page_config(
     layout="wide",
 )
 
-st.title("📑 PDF Swiss Knife")
+st.title("📑 LYD PDFku")
 st.caption(
-    "Aplikasi manipulasi PDF lokal, aman, dan cepat tanpa kirim data ke server luar."
+    "Aplikasi manipulasi PDF by LYD"
 )
 
 # Navigasi Tab
