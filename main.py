@@ -1,34 +1,67 @@
 import io
 import os
 import tempfile
+import zipfile
 from pdf2docx import Converter
 from PIL import Image
 from pypdf import PdfReader, PdfWriter
+from reportlab.lib.colors import Color
+from reportlab.pdfgen import canvas
 import streamlit as st
 
 st.set_page_config(
-    page_title="PDF Toolset",
+    page_title="PDF Swiss Knife Pro",
     page_icon="📑",
     layout="wide",
 )
 
-st.title("📑 LYD PDFku")
+st.title("📑 PDF Swiss Knife Pro")
 st.caption(
-    "Aplikasi manipulasi PDF by LYD"
+    "Aplikasi manipulasi PDF lokal, aman, dan lengkap tanpa kirim data ke server luar."
 )
 
-# Navigasi Tab
-tab_merge, tab_split, tab_rotate, tab_protect, tab_img2pdf, tab_pdf2docx = (
-    st.tabs(
-        [
-            "🔗 Gabung PDF",
-            "✂️ Pisah / Ekstrak",
-            "🔄 Putar Halaman",
-            "🔒 Kunci / Buka Password",
-            "🖼️ Gambar ke PDF",
-            "📝 PDF ke Word",
-        ]
-    )
+
+# Helper: Membuat watermark transparan menggunakan ReportLab
+def generate_watermark_layer(text, width, height, opacity=0.3):
+    packet = io.BytesIO()
+    can = canvas.Canvas(packet, pagesize=(width, height))
+    # Warna abu-abu dengan transparansi alpha
+    can.setFillColor(Color(0.5, 0.5, 0.5, alpha=opacity))
+    can.setFont("Helvetica-Bold", 45)
+    can.saveState()
+    # Pindahkan origin ke tengah dan putar 45 derajat
+    can.translate(width / 2.0, height / 2.0)
+    can.rotate(45)
+    can.drawCentredString(0, 0, text)
+    can.restoreState()
+    can.save()
+    packet.seek(0)
+    return PdfReader(packet).pages[0]
+
+
+# Navigasi Tab Lengkap
+(
+    tab_merge,
+    tab_split,
+    tab_rotate,
+    tab_compress,
+    tab_watermark,
+    tab_protect,
+    tab_extract,
+    tab_img2pdf,
+    tab_pdf2docx,
+) = st.tabs(
+    [
+        "🔗 Gabung",
+        "✂️ Pisah",
+        "🔄 Putar",
+        "🗜️ Kompres",
+        "🏷️ Watermark",
+        "🔒 Keamanan",
+        "📦 Ekstrak Aset",
+        "🖼️ Gambar ke PDF",
+        "📝 PDF ke Word",
+    ]
 )
 
 # ---------------------------------------------------------
@@ -37,7 +70,7 @@ tab_merge, tab_split, tab_rotate, tab_protect, tab_img2pdf, tab_pdf2docx = (
 with tab_merge:
     st.subheader("Gabungkan Beberapa File PDF")
     uploaded_pdfs = st.file_uploader(
-        "Pilih file PDF (bisa lebih dari satu):",
+        "Pilih file PDF:",
         type=["pdf"],
         accept_multiple_files=True,
         key="merge_uploader",
@@ -45,8 +78,7 @@ with tab_merge:
 
     if uploaded_pdfs:
         st.write(f"Total file dipilih: **{len(uploaded_pdfs)} file**")
-
-        if st.button("Proses Penggabungan", type="primary", key="btn_merge"):
+        if st.button("Gabungkan Dokumen", type="primary", key="btn_merge"):
             writer = PdfWriter()
             for pdf_file in uploaded_pdfs:
                 reader = PdfReader(pdf_file)
@@ -55,12 +87,11 @@ with tab_merge:
 
             out_buf = io.BytesIO()
             writer.write(out_buf)
-            merged_bytes = out_buf.getvalue()
 
             st.success("File PDF berhasil digabungkan!")
             st.download_button(
                 label="📥 Unduh PDF Hasil Gabungan",
-                data=merged_bytes,
+                data=out_buf.getvalue(),
                 file_name="hasil_gabungan.pdf",
                 mime="application/pdf",
                 use_container_width=True,
@@ -105,7 +136,7 @@ with tab_split:
 
                     if not selected_indices:
                         st.error(
-                            "Nomor halaman tidak valid atau di luar rentang."
+                            "Nomor halaman tidak valid atau di luar jangkauan."
                         )
                     else:
                         writer = PdfWriter()
@@ -114,21 +145,20 @@ with tab_split:
 
                         out_buf = io.BytesIO()
                         writer.write(out_buf)
-                        split_bytes = out_buf.getvalue()
 
                         st.success(
                             f"Berhasil mengekstrak {len(selected_indices)} halaman!"
                         )
                         st.download_button(
                             label="📥 Unduh PDF Hasil Ekstrak",
-                            data=split_bytes,
+                            data=out_buf.getvalue(),
                             file_name="hasil_ekstrak.pdf",
                             mime="application/pdf",
                             use_container_width=True,
                         )
                 except ValueError:
                     st.error(
-                        "Format input salah. Gunakan angka dan tanda minus."
+                        "Format input salah. Gunakan angka dan tanda hubung minus (-)."
                     )
 
 # ---------------------------------------------------------
@@ -158,8 +188,7 @@ with tab_rotate:
         target_pages = ""
         if rotate_scope == "Halaman Tertentu Saja":
             target_pages = st.text_input(
-                "Masukkan nomor halaman (contoh: 1, 3):",
-                placeholder="1, 3",
+                "Masukkan nomor halaman (contoh: 1, 3):", placeholder="1, 3"
             )
 
         if st.button("Putar Halaman", type="primary", key="btn_rotate"):
@@ -186,19 +215,120 @@ with tab_rotate:
 
             out_buf = io.BytesIO()
             writer.write(out_buf)
-            rotated_bytes = out_buf.getvalue()
 
             st.success("Halaman berhasil diputar!")
             st.download_button(
                 label="📥 Unduh PDF Hasil Putar",
-                data=rotated_bytes,
+                data=out_buf.getvalue(),
                 file_name="hasil_putar.pdf",
                 mime="application/pdf",
                 use_container_width=True,
             )
 
 # ---------------------------------------------------------
-# TAB 4: PROTECT & UNLOCK
+# TAB 4: KOMPRESI PDF (COMPRESS)
+# ---------------------------------------------------------
+with tab_compress:
+    st.subheader("Perkecil Ukuran File PDF")
+    compress_file = st.file_uploader(
+        "Pilih file PDF yang ingin dikompresi:",
+        type=["pdf"],
+        key="compress_uploader",
+    )
+
+    if compress_file:
+        orig_size = len(compress_file.getvalue()) / 1024
+        st.write(f"Ukuran asli: **{orig_size:.2f} KB**")
+
+        quality_slider = st.slider(
+            "Kualitas Kompresi Gambar Internal (Skala):",
+            min_value=20,
+            max_value=90,
+            value=60,
+            help="Semakin kecil nilai, ukuran file makin ramping namun ketajaman gambar menurun.",
+        )
+
+        if st.button("Kompres Dokumen", type="primary", key="btn_compress"):
+            reader = PdfReader(compress_file)
+            writer = PdfWriter()
+
+            for page in reader.pages:
+                page.compress_content_streams()
+                writer.add_page(page)
+
+            for page in writer.pages:
+                for img in page.images:
+                    img.replace(img.image, quality=quality_slider)
+
+            out_buf = io.BytesIO()
+            writer.write(out_buf)
+            comp_bytes = out_buf.getvalue()
+            new_size = len(comp_bytes) / 1024
+
+            st.success(
+                f"Ukuran berhasil dikurangi dari {orig_size:.2f} KB menjadi {new_size:.2f} KB!"
+            )
+            st.download_button(
+                label="📥 Unduh PDF Hasil Kompres",
+                data=comp_bytes,
+                file_name="hasil_kompres.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+            )
+
+# ---------------------------------------------------------
+# TAB 5: WATERMARK TEKS DINAMIS
+# ---------------------------------------------------------
+with tab_watermark:
+    st.subheader("Beri Watermark Teks Dinamis")
+    wm_file = st.file_uploader(
+        "Pilih file PDF:", type=["pdf"], key="wm_uploader"
+    )
+
+    if wm_file:
+        col_wm1, col_wm2 = st.columns(2)
+        with col_wm1:
+            wm_text = st.text_input(
+                "Teks Watermark:",
+                placeholder="CONTOH: DOKUMEN RAHASIA",
+                value="CONFIDENTIAL",
+            )
+        with col_wm2:
+            wm_opacity = st.slider(
+                "Transparansi Watermark:",
+                min_value=0.1,
+                max_value=1.0,
+                value=0.25,
+                step=0.05,
+            )
+
+        if st.button("Terapkan Watermark", type="primary", key="btn_wm"):
+            reader = PdfReader(wm_file)
+            writer = PdfWriter()
+
+            for page in reader.pages:
+                p_width = float(page.mediabox.width)
+                p_height = float(page.mediabox.height)
+                wm_page = generate_watermark_layer(
+                    wm_text, p_width, p_height, opacity=wm_opacity
+                )
+                page.merge_page(wm_page)
+                writer.add_page(page)
+
+            out_buf = io.BytesIO()
+            writer.write(out_buf)
+
+            st.success("Watermark berhasil ditempelkan di setiap halaman!")
+            st.download_button(
+                label="📥 Unduh PDF dengan Watermark",
+                data=out_buf.getvalue(),
+                file_name="dokumen_watermark.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+            )
+
+# ---------------------------------------------------------
+# TAB 6: KEAMANAN (PROTECT & UNLOCK)
 # ---------------------------------------------------------
 with tab_protect:
     st.subheader("Kunci atau Buka Password Dokumen")
@@ -261,12 +391,75 @@ with tab_protect:
                         st.info("Dokumen ini tidak terkunci password.")
 
 # ---------------------------------------------------------
-# TAB 5: GAMBAR KE PDF (IMAGES TO PDF)
+# TAB 7: EKSTRAKSI ASET (TEKS & GAMBAR)
+# ---------------------------------------------------------
+with tab_extract:
+    st.subheader("Ekstrak Teks dan Gambar Dokumen")
+    ext_file = st.file_uploader(
+        "Pilih file PDF:", type=["pdf"], key="ext_uploader"
+    )
+
+    if ext_file:
+        ext_choice = st.radio(
+            "Pilih Target Ekstraksi:",
+            ["Semua Teks (.txt)", "Semua Gambar (.zip)"],
+            horizontal=True,
+        )
+
+        if st.button("Mulai Ekstraksi", type="primary", key="btn_ext"):
+            reader = PdfReader(ext_file)
+
+            if ext_choice == "Semua Teks (.txt)":
+                full_text = ""
+                for idx, page in enumerate(reader.pages):
+                    text = page.extract_text() or ""
+                    full_text += (
+                        f"--- [Halaman {idx + 1}] ---\n{text}\n\n"
+                    )
+
+                st.success("Teks berhasil diekstrak!")
+                st.download_button(
+                    label="📥 Unduh File Teks (.txt)",
+                    data=full_text.encode("utf-8"),
+                    file_name="hasil_ekstraksi_teks.txt",
+                    mime="text/plain",
+                    use_container_width=True,
+                )
+            else:
+                zip_buffer = io.BytesIO()
+                total_imgs = 0
+                with zipfile.ZipFile(
+                    zip_buffer, "w", zipfile.ZIP_DEFLATED
+                ) as zip_file:
+                    for p_idx, page in enumerate(reader.pages):
+                        for img_idx, img in enumerate(page.images):
+                            total_imgs += 1
+                            zip_file.writestr(
+                                f"hal_{p_idx + 1}_img_{img_idx + 1}_{img.name}",
+                                img.data,
+                            )
+
+                if total_imgs == 0:
+                    st.warning("Tidak ditemukan file gambar pada dokumen ini.")
+                else:
+                    st.success(
+                        f"Ditemukan dan diekstrak total **{total_imgs} gambar**!"
+                    )
+                    st.download_button(
+                        label="📥 Unduh Koleksi Gambar (.zip)",
+                        data=zip_buffer.getvalue(),
+                        file_name="gambar_pdf.zip",
+                        mime="application/zip",
+                        use_container_width=True,
+                    )
+
+# ---------------------------------------------------------
+# TAB 8: GAMBAR KE PDF (IMAGES TO PDF)
 # ---------------------------------------------------------
 with tab_img2pdf:
-    st.subheader("Gabungkan Gambar (JPG/PNG) Menjadi PDF")
+    st.subheader("Gabungkan Gambar Menjadi Satu Dokumen PDF")
     uploaded_imgs = st.file_uploader(
-        "Pilih gambar:",
+        "Pilih gambar (JPG / PNG):",
         type=["png", "jpg", "jpeg"],
         accept_multiple_files=True,
         key="img_uploader",
@@ -292,9 +485,9 @@ with tab_img2pdf:
                     append_images=pil_images[1:],
                 )
 
-                st.success("Dokumen PDF dari gambar berhasil dibuat!")
+                st.success("Dokumen PDF dari koleksi gambar berhasil dibuat!")
                 st.download_button(
-                    label="📥 Unduh Hasil PDF Gambar",
+                    label="📥 Unduh Hasil PDF",
                     data=out_buf.getvalue(),
                     file_name="koleksi_gambar.pdf",
                     mime="application/pdf",
@@ -302,7 +495,7 @@ with tab_img2pdf:
                 )
 
 # ---------------------------------------------------------
-# TAB 6: PDF KE WORD (.DOCX)
+# TAB 9: PDF KE WORD (.DOCX)
 # ---------------------------------------------------------
 with tab_pdf2docx:
     st.subheader("Konversi Dokumen PDF ke Format Word (.docx)")
@@ -314,7 +507,7 @@ with tab_pdf2docx:
 
     if docx_file:
         if st.button("Konversi ke Word", type="primary", key="btn_pdf2docx"):
-            with st.spinner("Sedang mengonversi tata letak, teks, dan tabel..."):
+            with st.spinner("Mengonversi teks, layout, dan tabel..."):
                 with tempfile.TemporaryDirectory() as temp_dir:
                     input_path = os.path.join(temp_dir, "input.pdf")
                     output_path = os.path.join(temp_dir, "output.docx")
