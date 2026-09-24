@@ -18,7 +18,7 @@ st.set_page_config(
 
 st.title("📑 PDF Swiss Knife Pro")
 st.caption(
-    "Aplikasi manipulasi PDF lokal, aman, dan lengkap tanpa kirim data ke server luar."
+    "Aplikasi manipulasi PDF."
 )
 
 
