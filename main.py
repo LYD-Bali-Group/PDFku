@@ -8,6 +8,7 @@ from pypdf import PdfReader, PdfWriter
 from reportlab.lib.colors import Color
 from reportlab.pdfgen import canvas
 import streamlit as st
+import fitz  # PyMuPDF
 
 st.set_page_config(
     page_title="PDF Swiss Knife Pro",
@@ -50,6 +51,7 @@ def generate_watermark_layer(text, width, height, opacity=0.3):
     tab_extract,
     tab_img2pdf,
     tab_pdf2docx,
+    tab_edit_text
 ) = st.tabs(
     [
         "🔗 Gabung",
@@ -61,6 +63,7 @@ def generate_watermark_layer(text, width, height, opacity=0.3):
         "📦 Ekstrak Aset",
         "🖼️ Gambar ke PDF",
         "📝 PDF ke Word",
+        "✏️ Edit Teks"
     ]
 )
 
@@ -493,6 +496,97 @@ with tab_img2pdf:
                     mime="application/pdf",
                     use_container_width=True,
                 )
+
+# Tambahkan tab baru: tab_edit_text
+with tab_edit_text:
+    st.subheader("✏️ Edit / Ganti Teks Langsung di PDF")
+    st.caption(
+        "Mencari teks target, menghapusnya, dan menuliskan teks pengganti tepat di posisi yang sama."
+    )
+
+    edit_file = st.file_uploader(
+        "Pilih file PDF yang ingin diedit:", type=["pdf"], key="edit_uploader"
+    )
+
+    if edit_file:
+        doc = fitz.open(stream=edit_file.getvalue(), filetype="pdf")
+        total_pages = len(doc)
+
+        col_e1, col_e2 = st.columns(2)
+        with col_e1:
+            target_page_num = st.number_input(
+                "Pilih Halaman:",
+                min_value=1,
+                max_value=total_pages,
+                value=1,
+                step=1,
+            )
+        with col_e2:
+            font_size = st.number_input(
+                "Ukuran Font Baru (pt):", min_value=6, max_value=72, value=11
+            )
+
+        col_t1, col_t2 = st.columns(2)
+        with col_t1:
+            old_text = st.text_input(
+                "Teks yang ingin diganti (Case-sensitive):",
+                placeholder="Contoh: Rp 50.000",
+            )
+        with col_t2:
+            new_text = st.text_input(
+                "Teks pengganti:", placeholder="Contoh: Rp 75.000"
+            )
+
+        # Preview halaman sebelum diedit
+        page = doc[target_page_num - 1]
+        pix = page.get_pixmap(dpi=150)
+        st.image(
+            pix.tobytes("png"),
+            caption=f"Pratinjau Halaman {target_page_num}",
+            width=500,
+        )
+
+        if st.button("Terapkan Perubahan", type="primary", key="btn_apply_edit"):
+            if not old_text:
+                st.warning("Masukkan teks yang ingin dicari.")
+            else:
+                # Cari area persegi koordinat (bounding box) teks lama
+                text_instances = page.search_for(old_text)
+
+                if not text_instances:
+                    st.error(
+                        f"Teks '{old_text}' tidak ditemukan di halaman {target_page_num}."
+                    )
+                else:
+                    for inst in text_instances:
+                        # 1. Hapus/tutupi teks lama menggunakan redaction anotasi (warna putih)
+                        page.add_redact_annot(inst, fill=(1, 1, 1))
+                    page.apply_redactions()
+
+                    # 2. Tulis teks baru pada posisi koordinat awal teks lama
+                    for inst in text_instances:
+                        # Naikkan koordinat y sedikit untuk baseline teks
+                        point = fitz.Point(inst.x0, inst.y1 - 2)
+                        page.insert_text(
+                            point,
+                            new_text,
+                            fontsize=font_size,
+                            color=(0, 0, 0),  # Warna teks hitam
+                        )
+
+                    # Simpan hasil ke byte array
+                    edited_pdf_bytes = doc.write()
+
+                    st.success(
+                        f"Berhasil mengganti {len(text_instances)} kata '{old_text}'!"
+                    )
+                    st.download_button(
+                        label="📥 Unduh PDF Hasil Edit",
+                        data=edited_pdf_bytes,
+                        file_name="hasil_edit_teks.pdf",
+                        mime="application/pdf",
+                        use_container_width=True,
+                    )
 
 # ---------------------------------------------------------
 # TAB 9: PDF KE WORD (.DOCX)
