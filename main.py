@@ -16,7 +16,7 @@ st.set_page_config(
     layout="wide",
 )
 
-st.title("📑 PDF Swiss Knife Pro")
+st.title("📑 PDFku by LYD Bali Group")
 st.caption(
     "Aplikasi manipulasi PDF."
 )
